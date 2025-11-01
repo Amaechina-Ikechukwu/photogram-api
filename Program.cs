@@ -13,7 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 // =================================================================
 // 1. CONFIGURE SERVICES (Dependency Injection)
 // =================================================================
-
+AppContext.SetSwitch("System.Net.DisableNetworkChangeNotification", true);
 // --- Load Secrets from Google Secret Manager ---
 var projectId = "musterus-api";
 string GetSecret(string secretId)
@@ -125,4 +125,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-app.Run();
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+var url = $"http://0.0.0.0:{port}";
+
+app.Run(url);

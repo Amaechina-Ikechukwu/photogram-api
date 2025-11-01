@@ -67,3 +67,4 @@ C:\Users\amaec\March\Projects\apis\Photogram-Api\bin\Debug\net9.0\runtimes\win\l
 C:\Users\amaec\March\Projects\apis\Photogram-Api\bin\Debug\net9.0\Firebase.dll
 C:\Users\amaec\March\Projects\apis\Photogram-Api\bin\Debug\net9.0\LiteDB.dll
 C:\Users\amaec\March\Projects\apis\Photogram-Api\bin\Debug\net9.0\System.Reactive.dll
+C:\Users\amaec\March\Projects\apis\Photogram-Api\obj\Debug\net9.0\Photogram-Api.sourcelink.json
