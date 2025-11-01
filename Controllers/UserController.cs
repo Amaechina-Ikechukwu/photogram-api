@@ -17,11 +17,11 @@ namespace Photogram_Api.Controllers
         private readonly FirebaseService _firebase;
         private readonly FirebaseAuth _firebaseAuth;
 
-        public UserController(FirebaseService firebase, FirebaseAuth firebaseAuth)
-        {
-            _firebase = firebase;
-            _firebaseAuth = firebaseAuth;
-        }
+     public UserController(FirebaseService firebase)
+    {
+        _firebase = firebase;
+        _firebaseAuth = FirebaseAuth.DefaultInstance;
+    }
 
         [HttpGet("me")]
         [Authorize]
