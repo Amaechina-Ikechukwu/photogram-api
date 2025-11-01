@@ -10,14 +10,14 @@ public class FirebaseService
         _client = client;
     }
 
-    public async Task<T> GetAsync<T>(string path)
+    public async Task<T?> GetAsync<T>(string path) where T : class
     {
         return await _client
             .Child(path)
             .OnceSingleAsync<T>();
     }
 
-    public async Task SetAsync<T>(string path, T data)
+    public async Task SetAsync<T>(string path, T? data) where T : class
     {
         await _client
             .Child(path)
