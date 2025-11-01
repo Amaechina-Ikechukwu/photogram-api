@@ -23,7 +23,7 @@ namespace Photogram_Api.Controllers
             _firebaseAuth = firebaseAuth;
         }
 
-        [HttpGet]
+        [HttpGet("me")]
         [Authorize]
         public async Task<ActionResult<UserModel>> GetCurrentUser()
         {
@@ -34,6 +34,12 @@ namespace Photogram_Api.Controllers
             }
 
             var user = await _firebase.GetAsync<UserModel>($"users/{authenticatedUid}");
+
+            // Compute upload count for this user (null-safe)
+            var posts = await _firebase.GetAsync<Dictionary<string, UserPhotoViewModel>>(
+                $"users/{authenticatedUid}/images"
+            );
+            var uploadsCount = posts?.Count ?? 0;
 
             if (user == null)
             {
@@ -46,7 +52,7 @@ namespace Photogram_Api.Controllers
                     Uid = authenticatedUid,
                     Name = name,
                     Email = email,
-                    NumberOfUploads = 0,
+                    NumberOfUploads = uploadsCount,
                     TotalViews = 0,
                     TotalLikes = 0
                 };
@@ -56,6 +62,8 @@ namespace Photogram_Api.Controllers
                 return Ok(new { success = true, data = newUser });
             }
 
+            // Reflect the latest upload count on the returned object (no persistence here)
+            user.NumberOfUploads = uploadsCount;
             return Ok(new { success = true, data = user });
         }
 

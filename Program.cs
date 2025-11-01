@@ -70,11 +70,11 @@ builder.Services.AddSingleton<FirebaseService>(sp =>
     {
         var httpContext = httpContextAccessor.HttpContext;
         if (httpContext == null)
-            return null;
+            return string.Empty;
 
         var authorizationHeader = httpContext.Request.Headers["Authorization"].ToString();
         if (string.IsNullOrEmpty(authorizationHeader) || !authorizationHeader.StartsWith("Bearer "))
-            return null;
+            return string.Empty;
 
         return await Task.FromResult(authorizationHeader.Substring("Bearer ".Length));
     };
