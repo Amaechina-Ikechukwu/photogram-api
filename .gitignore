@@ -1,0 +1,104 @@
+# ============================
+# BUILD AND USER FILES
+# ============================
+bin/
+obj/
+out/
+*.exe
+*.dll
+*.pdb
+*.cache
+*.log
+
+# ============================
+# VISUAL STUDIO / RIDER / VS CODE
+# ============================
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ============================
+# PACKAGES / DEPENDENCIES
+# ============================
+# NuGet packages
+*.nupkg
+# Uncomment if you have local package sources
+# packages/
+
+# ============================
+# SYSTEM / OS FILES
+# ============================
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+Icon?
+*.swp
+*.bak
+*.tmp
+
+# ============================
+# ENVIRONMENT VARIABLES / CONFIGS
+# ============================
+.env
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.json
+
+# If using secrets.json (User Secrets)
+secrets.json
+
+# ============================
+# LOGS / DATA
+# ============================
+*.log
+logs/
+LogFiles/
+coverage/
+TestResults/
+*.coverage
+*.coveragexml
+
+# ============================
+# DATABASE / TEMP FILES
+# ============================
+*.mdf
+*.ldf
+*.sqlite
+*.db
+*.db-shm
+*.db-wal
+
+# ============================
+# DEPLOYMENT / CLOUD / TOOLS
+# ============================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.tgz
+
+# Docker / Container related
+docker-compose.override.yml
+*.env
+*.pid
+
+# ============================
+# FIREBASE / SERVICE KEYS
+# ============================
+*.json
+firebase-adminsdk*.json
+serviceAccountKey.json
+
+# ============================
+# MISC
+# ============================
+*.local
+*.orig
+*.rej
+*.old
