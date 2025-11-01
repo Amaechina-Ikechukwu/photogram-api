@@ -8,61 +8,38 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
 using Firebase.Database;
+
+AppContext.SetSwitch("System.Net.DisableNetworkChangeNotification", true);
+
 var builder = WebApplication.CreateBuilder(args);
 
-// =================================================================
-// 1. CONFIGURE SERVICES (Dependency Injection)
-// =================================================================
-AppContext.SetSwitch("System.Net.DisableNetworkChangeNotification", true);
-// --- Load Secrets from Google Secret Manager ---
-var projectId = "musterus-api";
-string GetSecret(string secretId)
-{
-    var client = SecretManagerServiceClient.Create();
-    var secretName = new SecretVersionName(projectId, secretId, "latest");
-    AccessSecretVersionResponse result = client.AccessSecretVersion(secretName);
-    return result.Payload.Data.ToStringUtf8();
-}
-
-// --- Firebase Admin SDK ---
-var firebaseCredentials = GetSecret("Firebase-GoogleCredentialJson");
-FirebaseApp.Create(new AppOptions()
-{
-    Credential = GoogleCredential.FromJson(firebaseCredentials)
-});
-
-// --- Basic ASP.NET Setup ---
 builder.Services.AddControllers();
-
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-
-// --- Redis Service Registration ---
-builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-{
-    var redisConn = GetSecret("Redis-ConnectionString");
-    if (string.IsNullOrEmpty(redisConn))
-    {
-        throw new InvalidOperationException("Redis connection string not found in configuration or Secret Manager.");
-    }
-
-    // Create and return Redis connection
-    var configOptions = ConfigurationOptions.Parse(redisConn);
-    return ConnectionMultiplexer.Connect(configOptions);
-});
-
 builder.Services.AddHttpContextAccessor();
 
-// --- Firebase Service Registration ---
+// =================================================================
+// Register Lazy SecretManagerServiceClient (created when needed)
+// =================================================================
+builder.Services.AddSingleton<SecretManagerServiceClient>(_ =>
+    SecretManagerServiceClient.Create());
 
-
+// =================================================================
+// Firebase Service Registration (lazy loading inside constructor)
+// =================================================================
 builder.Services.AddSingleton<FirebaseService>(sp =>
 {
-    var databaseUrl = GetSecret("Firebase-DatabaseURL");
-    if (string.IsNullOrEmpty(databaseUrl))
+    var secretClient = sp.GetRequiredService<SecretManagerServiceClient>();
+    string projectId = "musterus-api";
+
+    string GetSecret(string secretId)
     {
-        throw new InvalidOperationException("Firebase database URL not found in Secret Manager.");
+        var name = new SecretVersionName(projectId, secretId, "latest");
+        var result = secretClient.AccessSecretVersion(name);
+        return result.Payload.Data.ToStringUtf8();
     }
+
+    var databaseUrl = GetSecret("Firebase-DatabaseURL");
 
     var httpContextAccessor = sp.GetRequiredService<IHttpContextAccessor>();
 
@@ -81,21 +58,45 @@ builder.Services.AddSingleton<FirebaseService>(sp =>
 
     var client = new FirebaseClient(
         databaseUrl,
-        new FirebaseOptions
-        {
-            AuthTokenAsyncFactory = authTokenFactory
-        }
+        new FirebaseOptions { AuthTokenAsyncFactory = authTokenFactory }
     );
 
     return new FirebaseService(client);
 });
 
-builder.Services.AddSingleton(FirebaseAdmin.Auth.FirebaseAuth.DefaultInstance);
+// =================================================================
+// Post-Build Initialization (safe time to access Secret Manager)
+// =================================================================
+var app = builder.Build();
 
-// --- Firebase Authentication Middleware ---
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    try
+    {
+        Console.WriteLine("Initializing FirebaseApp after network ready...");
+        var secretClient = app.Services.GetRequiredService<SecretManagerServiceClient>();
+        string projectId = "musterus-api";
+        var name = new SecretVersionName(projectId, "Firebase-GoogleCredentialJson", "latest");
+        var secret = secretClient.AccessSecretVersion(name);
+        FirebaseApp.Create(new AppOptions
+        {
+            Credential = GoogleCredential.FromJson(secret.Payload.Data.ToStringUtf8())
+        });
+        Console.WriteLine("Firebase Admin initialized successfully.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Firebase init error: {ex.Message}");
+    }
+});
+
+// =================================================================
+// Auth + Middleware
+// =================================================================
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        var projectId = "musterus-api";
         options.Authority = $"https://securetoken.google.com/{projectId}";
         options.TokenValidationParameters = new TokenValidationParameters
         {
@@ -108,12 +109,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-var app = builder.Build();
-
-// =================================================================
-// 2. CONFIGURE HTTP REQUEST PIPELINE
-// =================================================================
-
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -123,9 +118,8 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapControllers();
-var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-var url = $"http://0.0.0.0:{port}";
 
-app.Run(url);
+// Required by Cloud Run
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+app.Run($"http://0.0.0.0:{port}");
