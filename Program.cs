@@ -1,6 +1,3 @@
-// ============================
-// USING STATEMENTS
-// ============================
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.SecretManager.V1;
@@ -13,20 +10,14 @@ AppContext.SetSwitch("System.Net.DisableNetworkChangeNotification", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-builder.Services.AddHttpContextAccessor();
+// =================================================================
+// 1. REGISTER SERVICES
+// =================================================================
 
-// =================================================================
-// Register Lazy SecretManagerServiceClient (created when needed)
-// =================================================================
-builder.Services.AddSingleton<SecretManagerServiceClient>(_ =>
-    SecretManagerServiceClient.Create());
+// Secret Manager client (safe lazy creation)
+builder.Services.AddSingleton<SecretManagerServiceClient>(_ => SecretManagerServiceClient.Create());
 
-// =================================================================
-// Firebase Service Registration (lazy loading inside constructor)
-// =================================================================
+// Firebase + Redis setup
 builder.Services.AddSingleton<FirebaseService>(sp =>
 {
     var secretClient = sp.GetRequiredService<SecretManagerServiceClient>();
@@ -64,20 +55,44 @@ builder.Services.AddSingleton<FirebaseService>(sp =>
     return new FirebaseService(client);
 });
 
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// Authentication — must come before builder.Build()
+var projectId = "musterus-api";
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.Authority = $"https://securetoken.google.com/{projectId}";
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = $"https://securetoken.google.com/{projectId}",
+            ValidateAudience = true,
+            ValidAudience = projectId,
+            ValidateLifetime = true,
+            NameClaimType = "name"
+        };
+    });
+
 // =================================================================
-// Post-Build Initialization (safe time to access Secret Manager)
+// 2. BUILD APP
 // =================================================================
 var app = builder.Build();
 
+// =================================================================
+// 3. POST-BUILD INITIALIZATION (safe timing)
+// =================================================================
 app.Lifetime.ApplicationStarted.Register(() =>
 {
     try
     {
-        Console.WriteLine("Initializing FirebaseApp after network ready...");
+        Console.WriteLine("Initializing Firebase Admin...");
         var secretClient = app.Services.GetRequiredService<SecretManagerServiceClient>();
-        string projectId = "musterus-api";
-        var name = new SecretVersionName(projectId, "Firebase-GoogleCredentialJson", "latest");
-        var secret = secretClient.AccessSecretVersion(name);
+        var secret = secretClient.AccessSecretVersion(
+            new SecretVersionName(projectId, "Firebase-GoogleCredentialJson", "latest"));
         FirebaseApp.Create(new AppOptions
         {
             Credential = GoogleCredential.FromJson(secret.Payload.Data.ToStringUtf8())
@@ -91,24 +106,8 @@ app.Lifetime.ApplicationStarted.Register(() =>
 });
 
 // =================================================================
-// Auth + Middleware
+// 4. PIPELINE CONFIGURATION
 // =================================================================
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        var projectId = "musterus-api";
-        options.Authority = $"https://securetoken.google.com/{projectId}";
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = $"https://securetoken.google.com/{projectId}",
-            ValidateAudience = true,
-            ValidAudience = projectId,
-            ValidateLifetime = true,
-            NameClaimType = "name"
-        };
-    });
-
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -120,6 +119,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
-// Required by Cloud Run
+// =================================================================
+// 5. RUN
+// =================================================================
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 app.Run($"http://0.0.0.0:{port}");
