@@ -118,6 +118,19 @@ public async Task<ActionResult<IEnumerable<UserPhotoViewModel>>> GetUserPhotos()
     return Ok(new { success = true, data = userPosts });
 }
 
+        [HttpGet("{uid}")]
+        public async Task<ActionResult<UserModel>> GetUserByUid(string uid)
+        {
+            var user = await _firebase.GetAsync<UserModel>($"users/{uid}");
+
+            if (user == null)
+            {
+                return NotFound();
+            }
+
+            return Ok(user);
+        }
+
 
     }
 }

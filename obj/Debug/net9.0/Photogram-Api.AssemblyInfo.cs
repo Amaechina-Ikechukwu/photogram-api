@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Photogram-Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+aff59599adeafd3f1d568970f04f8217af410790")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a3d7d8dc9c06654685165aaeca53b5dfb8c88104")]
 [assembly: System.Reflection.AssemblyProductAttribute("Photogram-Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Photogram-Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

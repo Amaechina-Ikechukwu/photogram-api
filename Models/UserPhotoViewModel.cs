@@ -9,7 +9,9 @@ namespace Photogram_Api.Models
         public long CreatedAt { get; set; }
         public string ImageUrl { get; set; } = string.Empty;
         public List<string> Tags { get; set; } = new List<string>();
+        public List<string> Categories { get; set; } = new List<string>();
         public string Uid { get; set; } = string.Empty;
+        public string Public { get; set; } = string.Empty;
     }
 }
 
