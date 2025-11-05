@@ -28,15 +28,11 @@ namespace Photogram_Api.Controllers
 
             if (publicPhotos == null)
             {
-                Console.WriteLine("[ERROR] No public photos found at 'images/public'");
+               
                 return NotFound();
             }
 
-            Console.WriteLine($"[INFO] Found {publicPhotos.Count} public photos");
             
-            // Debug: Log raw photo data structure
-            Console.WriteLine("[DEBUG] Raw photo data from Firebase:");
-            Console.WriteLine(JsonSerializer.Serialize(publicPhotos, new JsonSerializerOptions { WriteIndented = true }));
 
             var result = new List<PhotoWithUserModel>();
 
@@ -48,14 +44,7 @@ namespace Photogram_Api.Controllers
 
             foreach (var photo in publicPhotos.Values)
             {
-                    Console.WriteLine($"[DEBUG] Processing photo for user: {photo.Uid}");
                     
-                    // Use Tags as fallback if Categories is null
-                    if (photo.Categories == null && photo.Tags != null)
-                    {
-                        photo.Categories = photo.Tags;
-                        Console.WriteLine($"[DEBUG] Using Tags as Categories for photo");
-                    }
                     
                     var user = await _firebaseService.GetAsyncAnonymous<UserModel>($"users/{photo.Uid}");
 
@@ -63,34 +52,20 @@ namespace Photogram_Api.Controllers
                     {
                         // Get user's images to calculate numberOfUploads
                         var userImagesPath = $"users/{photo.Uid}/images";
-                        Console.WriteLine($"[DEBUG] Fetching user images from: {userImagesPath}");
+                       
                         
                         var userImages = await _firebaseService.GetAsyncAnonymous<Dictionary<string, object>>(userImagesPath);
                         user.NumberOfUploads = userImages?.Count ?? 0;
 
-                        Console.WriteLine($"[DEBUG] User {photo.Uid} has {user.NumberOfUploads} uploaded images");
+                       
                     }
 
-                    if (user == null)
-                    {
-                        // Log the photo and note the missing user so it's easier to inspect in logs
-                        Console.WriteLine(JsonSerializer.Serialize(new
-                        {
-                            Photo = photo,
-                            User = (object?)null,
-                            Message = $"User with id {photo.Uid} not found"
-                        }, jsonOptions));
-                    }
-                    else
-                    {
-                        // Log the combined object (pretty-printed) for easier debugging
-                        Console.WriteLine(JsonSerializer.Serialize(new { Photo = photo, User = user }, jsonOptions));
-                    }
+                
 
                     result.Add(new PhotoWithUserModel { Photo = photo, User = user });
             }
 
-            return Ok(result);
+            return Ok(new { sucess = true, message = "Public photos retrieved successfully", data = result });
         }
 
         [HttpGet("categories")]
@@ -100,24 +75,41 @@ namespace Photogram_Api.Controllers
 
             if (allPhotos == null)
             {
+               
                 return NotFound();
             }
 
-            // Use Tags as fallback for Categories
-            foreach (var photo in allPhotos.Values)
+          
+
+            var photosByCategory = new Dictionary<string, List<PhotoModel>>();
+
+            foreach (var kvp in allPhotos)
             {
-                if (photo.Categories == null && photo.Tags != null)
+                var photo = kvp.Value;
+                photo.id = kvp.Key;
+
+                if (!string.IsNullOrWhiteSpace(photo.Category))
                 {
-                    photo.Categories = photo.Tags;
+                    if (!photosByCategory.TryGetValue(photo.Category, out List<PhotoModel>? value))
+                    {
+                        value = [];
+
+                        photosByCategory[photo.Category] = value;
+                       
+                    }
+
+                    value.Add(photo);
+                    
+                }
+                else
+                {
+                   
                 }
             }
 
-            var result = allPhotos.Values
-                .SelectMany(p => (p.Categories ?? p.Tags)?.Select(c => new { Category = c, Photo = p }) ?? Enumerable.Empty<dynamic>())
-                .GroupBy(x => x.Category)
-                .ToDictionary(g => g.Key, g => g.Select(x => x.Photo));
+        
 
-            return Ok(result);
+            return Ok(new{sucess = true, message = "Categories retrieved successfully", data = photosByCategory});
         }
     }
 }
