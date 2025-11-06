@@ -9,6 +9,8 @@ namespace Photogram_Api.Models
         public string? Category { get; set; }
         public List<string>? Tags { get; set; }
         public long? CreatedAt { get; set; }
+        public int Views { get; set; } = 0;
+        public int Likes { get; set; } = 0;
 
     }
 }

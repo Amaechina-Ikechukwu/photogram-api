@@ -89,34 +89,35 @@ namespace Photogram_Api.Controllers
 
         [HttpGet("photos")]
         [Authorize]
-      
-public async Task<ActionResult<IEnumerable<UserPhotoViewModel>>> GetUserPhotos()
-{
-    var authenticatedUid = User.GetFirebaseUid();
-    if (authenticatedUid == null)
-        return Unauthorized("Firebase UID not found in token.");
+        public async Task<ActionResult<IEnumerable<UserPhotoViewModel>>> GetUserPhotos([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+        {
+            var authenticatedUid = User.GetFirebaseUid();
+            if (authenticatedUid == null)
+                return Unauthorized("Firebase UID not found in token.");
 
-    // Expect a dictionary: key = Firebase push ID, value = photo model
-    var posts = await _firebase.GetAsync<Dictionary<string, UserPhotoViewModel>>(
-        $"users/{authenticatedUid}/images"
-    );
+            // Expect a dictionary: key = Firebase push ID, value = photo model
+            var posts = await _firebase.GetAsync<Dictionary<string, UserPhotoViewModel>>(
+                $"users/{authenticatedUid}/images"
+            );
 
-    if (posts == null)
-        return Ok(new { success = true, data = new List<UserPhotoViewModel>() });
+            if (posts == null)
+                return Ok(new { success = true, data = new List<UserPhotoViewModel>() });
 
-    // Map dictionary to list, including the key as Id
-    var userPosts = posts.Select(entry => new UserPhotoViewModel
-{
-    Id = entry.Key,
-    CreatedAt = entry.Value.CreatedAt,
-    ImageUrl = entry.Value.ImageUrl,
-    Tags = entry.Value.Tags,
-    Uid = entry.Value.Uid
-}).ToList();
+            // Map dictionary to list, including the key as Id
+            var userPosts = posts.Select(entry => new UserPhotoViewModel
+            {
+                Id = entry.Key,
+                CreatedAt = entry.Value.CreatedAt,
+                ImageUrl = entry.Value.ImageUrl,
+                Tags = entry.Value.Tags,
+                Uid = entry.Value.Uid
+            }).ToList();
 
+            // Apply pagination
+            var paginatedPosts = userPosts.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
-    return Ok(new { success = true, data = userPosts });
-}
+            return Ok(new { success = true, data = paginatedPosts });
+        }
 
         [HttpGet("{uid}")]
         public async Task<ActionResult<UserModel>> GetUserByUid(string uid)

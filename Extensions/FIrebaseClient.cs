@@ -47,4 +47,11 @@ public class FirebaseService
             .Child(path)
             .PostAsync(data);
     }
+
+    public async Task UpdateAsync<T>(string path, T data) where T : class
+    {
+        await _client
+            .Child(path)
+            .PatchAsync(data);
+    }
 }
