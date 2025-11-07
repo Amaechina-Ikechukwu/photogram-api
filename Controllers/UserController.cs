@@ -62,6 +62,25 @@ namespace Photogram_Api.Controllers
                 return Ok(new { success = true, data = newUser });
             }
 
+            // Calculate TotalViews from /view path
+            var allViews = await _firebase.GetAsync<Dictionary<string, Dictionary<string, object>>>("views");
+            var totalViews = 0;
+            if (allViews != null && posts != null)
+            {
+                // Get all photo IDs for this user
+                var userPhotoIds = posts.Keys.ToHashSet();
+                
+                // Count views for each of user's photos
+                foreach (var photoId in userPhotoIds)
+                {
+                    if (allViews.TryGetValue(photoId, out var photoViews))
+                    {
+                        totalViews += photoViews?.Count ?? 0;
+                    }
+                }
+            }
+            user.TotalViews = totalViews;
+
             // Reflect the latest upload count on the returned object (no persistence here)
             user.NumberOfUploads = uploadsCount;
             return Ok(new { success = true, data = user });

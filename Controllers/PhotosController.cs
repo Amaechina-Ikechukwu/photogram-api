@@ -51,6 +51,13 @@ namespace Photogram_Api.Controllers
             var likesLookup = allLikes?.Values.ToLookup(l => l.PostId) ?? Enumerable.Empty<LikeModel>().ToLookup(l => (string)null);
 #pragma warning restore CS8619 // Nullability of reference types in value doesn't match target type.
 
+            // Fetch ALL views ONCE, before the loop
+            var allViews = await _firebaseService.GetAsyncAnonymous<Dictionary<string, Dictionary<string, object>>>("views");
+            var viewsLookup = allViews?.ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value?.Count ?? 0
+            ) ?? new Dictionary<string, int>();
+
             // --- FIX 2: Get authenticated user ID ONCE, before the loop ---
 
             var authenticatedUid = User.GetFirebaseUid(); // Assumes you have an extension method for this
@@ -89,6 +96,9 @@ namespace Photogram_Api.Controllers
                 var photoLikes = likesLookup[photoId].ToList();
                 photo.Likes = photoLikes.Count;
 
+                // Get view count from the views lookup
+                photo.Views = viewsLookup.TryGetValue(photoId, out var viewCount) ? viewCount : 0;
+
                 var hasLiked = authenticatedUid != null && photoLikes.Any(l => l.UserId == authenticatedUid);
 
                 result.Add(new PhotoWithUserModel { Photo = photo, User = user, HasLiked = hasLiked });
@@ -114,6 +124,13 @@ namespace Photogram_Api.Controllers
             var likes = await _firebaseService.GetAsync<Dictionary<string, LikeModel>>("likes");
             var authenticatedUid = User.GetFirebaseUid();
 
+            // Get all views once
+            var allViews = await _firebaseService.GetAsync<Dictionary<string, Dictionary<string, object>>>("views");
+            var viewsLookup = allViews?.ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value?.Count ?? 0
+            ) ?? new Dictionary<string, int>();
+
             var photosByCategory = new Dictionary<string, List<PhotoWithUserModel>>();
 
             foreach (var kvp in allPhotos)
@@ -137,6 +154,9 @@ namespace Photogram_Api.Controllers
                     // Calculate likes for this photo
                     var photoLikes = likes?.Values.Where(l => l.PostId == photo.id).ToList();
                     photo.Likes = photoLikes?.Count ?? 0;
+
+                    // Get view count from the views lookup
+                    photo.Views = viewsLookup.TryGetValue(photo.id, out var viewCount) ? viewCount : 0;
 
                     // Check if authenticated user has liked this photo
                     var hasLiked = authenticatedUid != null && photoLikes?.Any(l => l.UserId == authenticatedUid) == true;
@@ -177,18 +197,16 @@ namespace Photogram_Api.Controllers
                 return NotFound();
             }
 
-            var user = await _firebaseService.GetAsyncAnonymous<UserModel>($"users/{photo.Uid}");
-
-            if (user == null)
+            // Write view to /view/{imageid} path
+            var viewData = new Dictionary<string, object>
             {
-                return NotFound();
-            }
+                { "timestamp", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() },
+                { "photoId", id },
+                { "uid", photo.Uid ?? "" }
+            };
 
-            photo.Views++;
-            user.TotalViews++;
-
-            await _firebaseService.UpdateAsync($"images/public/{id}", photo);
-            await _firebaseService.UpdateAsync($"users/{photo.Uid}", user);
+            // Push a new view entry to the views collection for this image
+            await _firebaseService.PushAsync($"views/{id}", viewData);
 
             return Ok(new { success = true, message = "View count incremented successfully" });
         }
