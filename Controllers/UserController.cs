@@ -88,7 +88,7 @@ namespace Photogram_Api.Controllers
 
         [HttpPut]
         [Authorize]
-        public async Task<ActionResult> UpdateUser([FromBody] UserModel userModel)
+        public async Task<ActionResult> UpdateUser([FromBody] UpdateUserModel updateModel)
         {
             var authenticatedUid = User.GetFirebaseUid();
             if (authenticatedUid == null)
@@ -96,12 +96,17 @@ namespace Photogram_Api.Controllers
                 return Unauthorized("Firebase UID not found in token.");
             }
 
-            if (authenticatedUid != userModel.Uid)
+            // Get existing user data
+            var existingUser = await _firebase.GetAsync<UserModel>($"users/{authenticatedUid}");
+            if (existingUser == null)
             {
-                return Forbid("You can only update your own profile.");
+                return NotFound("User not found.");
             }
 
-            await _firebase.SetAsync($"users/{authenticatedUid}", userModel);
+            // Only update the Name field, preserve all other fields
+            existingUser.Name = updateModel.Name;
+
+            await _firebase.SetAsync($"users/{authenticatedUid}", existingUser);
 
             return Ok(new { success = true, message = "User updated successfully." });
         }
