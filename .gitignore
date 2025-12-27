@@ -32,4 +32,11 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Finder (MacOS) folder config
 .DS_Store
+
+# Service account keys and credentials
 application_default_credentials.json
+musterus-api.json
+*.json
+!package.json
+!tsconfig.json
+service-account-key.json
