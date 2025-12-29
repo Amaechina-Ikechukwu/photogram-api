@@ -15,4 +15,4 @@ COPY . .
 EXPOSE 8080
 
 # Start the application
-CMD ["bun", "start"]
+CMD ["bun", "run", "src/index.ts"]
