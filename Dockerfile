@@ -1,21 +1,18 @@
-# Dockerfile for Photogram API
-FROM oven/bun:1 as base
+# Use a Bun base image
+FROM oven/bun:1.1.5
+
+# Set the working directory
 WORKDIR /app
 
-# Install dependencies
+# Copy package.json and install dependencies
 COPY package.json bun.lockb ./
-RUN bun install --frozen-lockfile --production
+RUN bun install
 
-# Copy source code
-COPY src ./src
-COPY tsconfig.json ./
+# Copy the rest of the application
+COPY . .
 
-# Set environment
-ENV NODE_ENV=production
-ENV PORT=8080
-
-# Expose port
+# Expose the application port (change if needed)
 EXPOSE 8080
 
-# Run the application
-CMD ["bun", "run", "src/index.ts"]
+# Start the application
+CMD ["bun", "start"]
