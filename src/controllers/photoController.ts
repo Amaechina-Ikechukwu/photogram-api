@@ -1,7 +1,7 @@
 import type{ Response } from 'express';
 import type{ AuthRequest } from '../middleware/auth.ts';
 import { PhotoService } from '../services/photoService.ts';
-import type{ ApiResponse, CategoriesResponse } from '../types/index.ts';
+import type{ ApiResponse, CategoriesResponse, PhotoWithUser } from '../types/index.ts';
 
 const photoService = new PhotoService();
 
@@ -11,15 +11,15 @@ export async function getPublicPhotos(req: AuthRequest, res: Response): Promise<
     const pageSize = parseInt(req.query.pageSize as string) || 10;
 
     const uid = req.user?.uid;
-    const categories = await photoService.getCategoriesWithPagination(
+    const photos = await photoService.getPublicPhotosWithPagination(
       uid || null,
       { page, pageSize }
     );
 
-    const response: ApiResponse<CategoriesResponse> = {
+    const response: ApiResponse<PhotoWithUser[]> = {
       success: true,
-      message: 'Categories retrieved successfully',
-      data: categories,
+      message: 'Public photos retrieved successfully',
+      data: photos,
     };
 
     res.status(200).json(response);
@@ -27,7 +27,7 @@ export async function getPublicPhotos(req: AuthRequest, res: Response): Promise<
     console.error('Error in getPublicPhotos:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve categories',
+      message: 'Failed to retrieve public photos',
       error: error instanceof Error ? error.message : 'Unknown error',
     } as ApiResponse);
   }

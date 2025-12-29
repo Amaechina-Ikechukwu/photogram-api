@@ -232,4 +232,80 @@ export class PhotoService {
       throw error;
     }
   }
+
+  async getPublicPhotosWithPagination(
+    uid: string | null,
+    pagination: PaginationParams
+  ): Promise<PhotoWithUser[]> {
+    try {
+      const db = await this.getDb();
+      const photosSnapshot = await db.ref('images/public').once('value');
+      
+      if (!photosSnapshot.exists()) {
+        return [];
+      }
+
+      const allPhotos: Photo[] = [];
+      
+      photosSnapshot.forEach((childSnapshot) => {
+        const photo = childSnapshot.val() as Photo;
+        photo.id = childSnapshot.key as string;
+        allPhotos.push(photo);
+      });
+
+      // Sort by createdAt descending
+      allPhotos.sort((a, b) => b.createdAt - a.createdAt);
+
+      // Apply pagination
+      const { page, pageSize } = pagination;
+      const startIndex = (page - 1) * pageSize;
+      const endIndex = startIndex + pageSize;
+      const paginatedPhotos = allPhotos.slice(startIndex, endIndex);
+
+      // Fetch all likes once for performance
+      const allLikesSnapshot = await db.ref('likes').once('value');
+      const likesMap: { [photoId: string]: number } = {};
+      const userLikesMap: { [photoId: string]: boolean } = {};
+
+      if (allLikesSnapshot.exists()) {
+        allLikesSnapshot.forEach((child) => {
+          const like = child.val();
+          const postId = like.postId;
+          
+          // Count likes per photo
+          likesMap[postId] = (likesMap[postId] || 0) + 1;
+          
+          // Check if current user liked this photo
+          if (uid && like.userId === uid) {
+            userLikesMap[postId] = true;
+          }
+        });
+      }
+
+      const photosWithUsers: PhotoWithUser[] = [];
+
+      for (const photo of paginatedPhotos) {
+        const user = await this.getUserByUid(photo.uid);
+        
+        if (user) {
+          // Get likes and views count
+          photo.likes = likesMap[photo.id] || 0;
+          photo.views = await this.getPhotoViewsCount(photo.id);
+          
+          const hasLiked = userLikesMap[photo.id] || false;
+          
+          photosWithUsers.push({
+            photo,
+            user,
+            hasLiked,
+          });
+        }
+      }
+
+      return photosWithUsers;
+    } catch (error) {
+      console.error('Error fetching public photos:', error);
+      throw error;
+    }
+  }
 }
