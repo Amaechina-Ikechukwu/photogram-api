@@ -9,6 +9,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.ts';
 import photoRoutes from './routes/photoRoutes.ts';
 import likeRoutes from './routes/likeRoutes.ts';
 import userRoutes from './routes/userRoutes.ts';
+import commentRoutes from './routes/commentRoutes.ts';
 
 // Load configuration from Google Secret Manager
 await getSecret('xx').then((secretValue) => {
@@ -79,6 +80,7 @@ app.get('/health', (req: Request, res: Response) => {
 app.use('/api/photos', photoRoutes);
 app.use('/api/like', likeRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/comments', commentRoutes);
 
 // Error handling
 app.use(notFoundHandler);

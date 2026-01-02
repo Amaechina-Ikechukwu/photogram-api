@@ -1,5 +1,5 @@
 import { getDatabase } from '../config/firebase.ts';
-import { Like, User } from '../types/index.ts';
+import type { Like, User } from '../types/index.ts';
 import type { Database } from 'firebase-admin/database';
 
 export class LikeService {
@@ -113,6 +113,88 @@ export class LikeService {
       return hasLiked;
     } catch (error) {
       console.error('Error checking like status:', error);
+      return false;
+    }
+  }
+
+  async toggleCommentLike(uid: string, commentId: string): Promise<{ hasLiked: boolean; message: string }> {
+    try {
+      const db = await this.getDb();
+      
+      // Check if comment exists
+      const commentRef = db.ref(`comments/${commentId}`);
+      const commentSnapshot = await commentRef.once('value');
+
+      if (!commentSnapshot.exists()) {
+        throw new Error('Comment not found');
+      }
+
+      // Find existing like in flat commentLikes structure
+      const commentLikesSnapshot = await db.ref('commentLikes').once('value');
+      let existingLikeKey: string | null = null;
+
+      if (commentLikesSnapshot.exists()) {
+        commentLikesSnapshot.forEach((child) => {
+          const like = child.val();
+          if (like.userId === uid && like.commentId === commentId) {
+            existingLikeKey = child.key;
+            return true; // Stop iteration
+          }
+        });
+      }
+
+      if (existingLikeKey) {
+        // Unlike - remove like
+        await db.ref(`commentLikes/${existingLikeKey}`).remove();
+
+        return {
+          hasLiked: false,
+          message: 'Comment like removed successfully.',
+        };
+      } else {
+        // Like - add like with generated ID
+        const newLikeRef = db.ref('commentLikes').push();
+        const like = {
+          id: newLikeRef.key,
+          commentId: commentId,
+          userId: uid,
+          createdAt: Date.now(),
+        };
+
+        await newLikeRef.set(like);
+
+        return {
+          hasLiked: true,
+          message: 'Comment liked successfully.',
+        };
+      }
+    } catch (error) {
+      console.error('Error toggling comment like:', error);
+      throw error;
+    }
+  }
+
+  async hasUserLikedComment(uid: string, commentId: string): Promise<boolean> {
+    try {
+      const db = await this.getDb();
+      const commentLikesSnapshot = await db.ref('commentLikes').once('value');
+      
+      if (!commentLikesSnapshot.exists()) {
+        return false;
+      }
+
+      let hasLiked = false;
+      commentLikesSnapshot.forEach((child) => {
+        const like = child.val();
+        if (like.userId === uid && like.commentId === commentId) {
+          hasLiked = true;
+          return true; // Stop iteration
+        }
+      });
+
+      return hasLiked;
+    } catch (error) {
+      console.error('Error checking comment like status:', error);
       return false;
     }
   }

@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { getDatabase } from '../config/firebase.ts';
 
 export const getCurrentUser = async (

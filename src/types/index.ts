@@ -45,3 +45,25 @@ export interface Like {
   photoId: string;
   createdAt: number;
 }
+
+export interface Comment {
+  id: string;
+  photoId: string;
+  userId: string;
+  text: string;
+  createdAt: number;
+  likesCount?: number;
+}
+
+export interface CommentWithUser {
+  comment: Comment;
+  user: User;
+  hasLiked: boolean;
+}
+
+export interface CommentLike {
+  id: string;
+  commentId: string;
+  userId: string;
+  createdAt: number;
+}

@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { getAuth } from '../config/firebase.ts';
 
 export interface AuthRequest extends Request {
@@ -58,6 +58,51 @@ export async function authenticate(
       success: false,
       message: 'Internal server error during authentication',
     });
+    return;
+  }
+}
+
+export async function optionalAuthenticate(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      // No authentication provided, continue without user
+      next();
+      return;
+    }
+
+    const token = authHeader.split('Bearer ')[1];
+
+    if (!token) {
+      // Invalid format, continue without user
+      next();
+      return;
+    }
+
+    try {
+      const auth = await getAuth();
+      const decodedToken = await auth.verifyIdToken(token);
+      
+      req.user = {
+        uid: decodedToken.uid,
+        email: decodedToken.email,
+      };
+
+      next();
+    } catch (error) {
+      // Token verification failed, continue without user
+      console.error('Optional token verification error:', error);
+      next();
+      return;
+    }
+  } catch (error) {
+    console.error('Optional authentication error:', error);
+    next();
     return;
   }
 }
