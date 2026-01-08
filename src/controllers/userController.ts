@@ -1,6 +1,75 @@
 import type { Request, Response, NextFunction } from 'express';
 import { getDatabase } from '../config/firebase.ts';
 
+export const getUserPhotos = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const uid = req.user?.uid;
+
+    if (!uid) {
+      res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+      return;
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const pageSize = parseInt(req.query.pageSize as string) || 10;
+
+    const db = await getDatabase();
+    const userImagesRef = db.ref(`users/${uid}/images`);
+    const snapshot = await userImagesRef.once('value');
+
+    if (!snapshot.exists()) {
+      res.status(200).json({
+        success: true,
+        data: [],
+      });
+      return;
+    }
+
+    // Collect all photo IDs
+    const photoIds: string[] = [];
+    snapshot.forEach((childSnapshot) => {
+      photoIds.push(childSnapshot.key as string);
+    });
+
+    // Fetch photo details from images/public
+    const photos: any[] = [];
+    for (const photoId of photoIds) {
+      const photoRef = db.ref(`images/public/${photoId}`);
+      const photoSnapshot = await photoRef.once('value');
+      
+      if (photoSnapshot.exists()) {
+        const photoData = photoSnapshot.val();
+        photos.push({
+          id: photoId,
+          ...photoData,
+        });
+      }
+    }
+
+    // Sort by createdAt descending
+    photos.sort((a, b) => b.createdAt - a.createdAt);
+
+    // Apply pagination
+    const startIndex = (page - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const paginatedPhotos = photos.slice(startIndex, endIndex);
+
+    res.status(200).json({
+      success: true,
+      data: paginatedPhotos,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getCurrentUser = async (
   req: Request,
   res: Response,
@@ -31,10 +100,52 @@ export const getCurrentUser = async (
 
     const userData = snapshot.val();
 
+    // Calculate numberOfUploads
+    const userImagesRef = db.ref(`users/${uid}/images`);
+    const imagesSnapshot = await userImagesRef.once('value');
+    const numberOfUploads = imagesSnapshot.exists() ? imagesSnapshot.numChildren() : 0;
+
+    // Get photo IDs to calculate total views and likes
+    const photoIds: string[] = [];
+    if (imagesSnapshot.exists()) {
+      imagesSnapshot.forEach((childSnapshot) => {
+        photoIds.push(childSnapshot.key as string);
+      });
+    }
+
+    // Calculate total views and likes
+    let totalViews = 0;
+    let totalLikes = 0;
+
+    for (const photoId of photoIds) {
+      // Get views for this photo
+      const viewsSnapshot = await db.ref(`views/${photoId}`).once('value');
+      if (viewsSnapshot.exists()) {
+        totalViews += viewsSnapshot.numChildren();
+      }
+    }
+
+    // Get all likes and count those for user's photos
+    const likesSnapshot = await db.ref('likes').once('value');
+    if (likesSnapshot.exists()) {
+      likesSnapshot.forEach((childSnapshot) => {
+        const like = childSnapshot.val();
+        if (photoIds.includes(like.postId)) {
+          totalLikes++;
+        }
+      });
+    }
+
     res.status(200).json({
       success: true,
-      message: 'User retrieved successfully',
-      data: userData,
+      data: {
+        name: userData.name || null,
+        uid: uid,
+        email: userData.email,
+        numberOfUploads,
+        totalViews,
+        totalLikes,
+      },
     });
   } catch (error) {
     next(error);

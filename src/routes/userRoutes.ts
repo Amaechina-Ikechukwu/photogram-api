@@ -1,8 +1,11 @@
 import { Router } from 'express';
-import { getCurrentUser, updateCurrentUser } from '../controllers/userController.ts';
+import { getCurrentUser, updateCurrentUser, getUserPhotos } from '../controllers/userController.ts';
 import { authenticate } from '../middleware/auth.ts';
 
 const router = Router();
+
+// Get current user photos
+router.get('/photos', authenticate, getUserPhotos);
 
 // Get current user
 router.get('/me', authenticate, getCurrentUser);
