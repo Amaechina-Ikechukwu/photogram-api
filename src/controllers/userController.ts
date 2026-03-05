@@ -191,3 +191,64 @@ export const updateCurrentUser = async (
     next(error);
   }
 };
+
+export const requestAccountDeletion = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { email } = req.body;
+
+    if (!email || typeof email !== 'string') {
+      res.status(400).json({
+        success: false,
+        message: 'Email is required',
+      });
+      return;
+    }
+
+    const db = await getDatabase();
+    const usersRef = db.ref('users');
+    const snapshot = await usersRef.once('value');
+
+    if (!snapshot.exists()) {
+      res.status(404).json({
+        success: false,
+        message: 'No account found with that email',
+      });
+      return;
+    }
+
+    let matchedUid: string | null = null;
+    snapshot.forEach((childSnapshot) => {
+      const user = childSnapshot.val();
+      if (user.email && user.email.toLowerCase() === email.toLowerCase()) {
+        matchedUid = childSnapshot.key as string;
+      }
+    });
+
+    if (!matchedUid) {
+      res.status(404).json({
+        success: false,
+        message: 'No account found with that email',
+      });
+      return;
+    }
+
+    const deletionRef = db.ref(`deletion_requests/${matchedUid}`);
+    await deletionRef.set({
+      uid: matchedUid,
+      email: email.toLowerCase(),
+      requestedAt: Date.now(),
+      status: 'pending',
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Account deletion request recorded. Your account will be reviewed for deletion.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
