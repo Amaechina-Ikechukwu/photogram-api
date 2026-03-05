@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { getDatabase } from '../config/firebase.ts';
+import { getDatabase, getAuth } from '../config/firebase.ts';
 
 export const getUserPhotos = async (
   req: Request,
@@ -208,38 +208,24 @@ export const requestAccountDeletion = async (
       return;
     }
 
+    const auth = await getAuth();
+
+    let userRecord: import('firebase-admin').auth.UserRecord;
+    try {
+      userRecord = await auth.getUserByEmail(email);
+    } catch {
+      res.status(404).json({
+        success: false,
+        message: 'No account found with that email',
+      });
+      return;
+    }
+
     const db = await getDatabase();
-    const usersRef = db.ref('users');
-    const snapshot = await usersRef.once('value');
-
-    if (!snapshot.exists()) {
-      res.status(404).json({
-        success: false,
-        message: 'No account found with that email',
-      });
-      return;
-    }
-
-    let matchedUid: string | null = null;
-    snapshot.forEach((childSnapshot) => {
-      const user = childSnapshot.val();
-      if (user.email && user.email.toLowerCase() === email.toLowerCase()) {
-        matchedUid = childSnapshot.key as string;
-      }
-    });
-
-    if (!matchedUid) {
-      res.status(404).json({
-        success: false,
-        message: 'No account found with that email',
-      });
-      return;
-    }
-
-    const deletionRef = db.ref(`deletion_requests/${matchedUid}`);
+    const deletionRef = db.ref(`deletion_requests/${userRecord.uid}`);
     await deletionRef.set({
-      uid: matchedUid,
-      email: email.toLowerCase(),
+      uid: userRecord.uid,
+      email: userRecord.email!.toLowerCase(),
       requestedAt: Date.now(),
       status: 'pending',
     });
