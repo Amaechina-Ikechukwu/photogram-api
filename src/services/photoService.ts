@@ -1,10 +1,102 @@
 import { getDatabase } from '../config/firebase.ts';
 import type { Photo, User, PhotoWithUser, CategoriesResponse, PaginationParams } from '../types/index.ts';
-import type { Database } from 'firebase-admin/database';
+import type { DataSnapshot, Database } from 'firebase-admin/database';
 
 export class PhotoService {
   private async getDb(): Promise<Database> {
-    return await getDatabase();
+    return getDatabase();
+  }
+
+  private buildLikesMaps(
+    likesSnapshot: DataSnapshot,
+    uid: string | null
+  ): { likesMap: Record<string, number>; userLikesMap: Record<string, boolean> } {
+    const likesMap: Record<string, number> = {};
+    const userLikesMap: Record<string, boolean> = {};
+
+    if (!likesSnapshot.exists()) {
+      return { likesMap, userLikesMap };
+    }
+
+    likesSnapshot.forEach((child) => {
+      const like = child.val();
+      const postId = like.postId;
+
+      likesMap[postId] = (likesMap[postId] || 0) + 1;
+
+      if (uid && like.userId === uid) {
+        userLikesMap[postId] = true;
+      }
+    });
+
+    return { likesMap, userLikesMap };
+  }
+
+  private async getUsersByUids(db: Database, uids: string[]): Promise<Map<string, User>> {
+    const uniqueUids = [...new Set(uids.filter(Boolean))];
+    const users = new Map<string, User>();
+
+    await Promise.all(uniqueUids.map(async (uid) => {
+      const [userSnapshot, uploadsSnapshot] = await Promise.all([
+        db.ref(`users/${uid}`).once('value'),
+        db.ref(`users/${uid}/images`).once('value'),
+      ]);
+
+      if (!userSnapshot.exists()) {
+        return;
+      }
+
+      const user = userSnapshot.val() as User;
+      user.numberOfUploads = uploadsSnapshot.exists() ? uploadsSnapshot.numChildren() : 0;
+      users.set(uid, user);
+    }));
+
+    return users;
+  }
+
+  private async getViewsMap(db: Database, photoIds: string[]): Promise<Record<string, number>> {
+    const uniquePhotoIds = [...new Set(photoIds.filter(Boolean))];
+    const entries = await Promise.all(uniquePhotoIds.map(async (photoId) => {
+      const viewsSnapshot = await db.ref(`views/${photoId}`).once('value');
+      return [photoId, viewsSnapshot.exists() ? viewsSnapshot.numChildren() : 0] as const;
+    }));
+
+    return Object.fromEntries(entries);
+  }
+
+  private async enrichPhotos(
+    db: Database,
+    photos: Photo[],
+    uid: string | null,
+    likesMap: Record<string, number>,
+    userLikesMap: Record<string, boolean>
+  ): Promise<PhotoWithUser[]> {
+    if (photos.length === 0) {
+      return [];
+    }
+
+    const [usersMap, viewsMap] = await Promise.all([
+      this.getUsersByUids(db, photos.map((photo) => photo.uid)),
+      this.getViewsMap(db, photos.map((photo) => photo.id)),
+    ]);
+
+    return photos.flatMap((photo) => {
+      const user = usersMap.get(photo.uid);
+
+      if (!user) {
+        return [];
+      }
+
+      return [{
+        photo: {
+          ...photo,
+          likes: likesMap[photo.id] || 0,
+          views: viewsMap[photo.id] || 0,
+        },
+        user,
+        hasLiked: uid ? Boolean(userLikesMap[photo.id]) : false,
+      }];
+    });
   }
 
   async getUserByUid(uid: string): Promise<User | null> {
@@ -125,27 +217,9 @@ export class PhotoService {
         categoriesMap[category].push(photo);
       }
 
-      // Fetch all likes once for performance
       const allLikesSnapshot = await db.ref('likes').once('value');
-      const likesMap: { [photoId: string]: number } = {};
-      const userLikesMap: { [photoId: string]: boolean } = {};
+      const { likesMap, userLikesMap } = this.buildLikesMaps(allLikesSnapshot, uid);
 
-      if (allLikesSnapshot.exists()) {
-        allLikesSnapshot.forEach((child) => {
-          const like = child.val();
-          const postId = like.postId;
-          
-          // Count likes per photo
-          likesMap[postId] = (likesMap[postId] || 0) + 1;
-          
-          // Check if current user liked this photo
-          if (uid && like.userId === uid) {
-            userLikesMap[postId] = true;
-          }
-        });
-      }
-
-      // Apply pagination to each category
       const result: CategoriesResponse = {};
       const { page, pageSize } = pagination;
       const startIndex = (page - 1) * pageSize;
@@ -153,31 +227,21 @@ export class PhotoService {
 
       for (const [category, photos] of Object.entries(categoriesMap)) {
         const paginatedPhotos = photos.slice(startIndex, endIndex);
-        
-        if (paginatedPhotos.length > 0) {
-          const photosWithUsers: PhotoWithUser[] = [];
 
-          for (const photo of paginatedPhotos) {
-            const user = await this.getUserByUid(photo.uid);
-            
-            if (user) {
-              // Get likes and views count
-              photo.likes = likesMap[photo.id] || 0;
-              photo.views = await this.getPhotoViewsCount(photo.id);
-              
-              const hasLiked = userLikesMap[photo.id] || false;
-              
-              photosWithUsers.push({
-                photo,
-                user,
-                hasLiked,
-              });
-            }
-          }
+        if (paginatedPhotos.length === 0) {
+          continue;
+        }
 
-          if (photosWithUsers.length > 0) {
-            result[category] = photosWithUsers;
-          }
+        const photosWithUsers = await this.enrichPhotos(
+          db,
+          paginatedPhotos,
+          uid,
+          likesMap,
+          userLikesMap
+        );
+
+        if (photosWithUsers.length > 0) {
+          result[category] = photosWithUsers;
         }
       }
 
@@ -262,47 +326,10 @@ export class PhotoService {
       const endIndex = startIndex + pageSize;
       const paginatedPhotos = allPhotos.slice(startIndex, endIndex);
 
-      // Fetch all likes once for performance
       const allLikesSnapshot = await db.ref('likes').once('value');
-      const likesMap: { [photoId: string]: number } = {};
-      const userLikesMap: { [photoId: string]: boolean } = {};
+      const { likesMap, userLikesMap } = this.buildLikesMaps(allLikesSnapshot, uid);
 
-      if (allLikesSnapshot.exists()) {
-        allLikesSnapshot.forEach((child) => {
-          const like = child.val();
-          const postId = like.postId;
-          
-          // Count likes per photo
-          likesMap[postId] = (likesMap[postId] || 0) + 1;
-          
-          // Check if current user liked this photo
-          if (uid && like.userId === uid) {
-            userLikesMap[postId] = true;
-          }
-        });
-      }
-
-      const photosWithUsers: PhotoWithUser[] = [];
-
-      for (const photo of paginatedPhotos) {
-        const user = await this.getUserByUid(photo.uid);
-        
-        if (user) {
-          // Get likes and views count
-          photo.likes = likesMap[photo.id] || 0;
-          photo.views = await this.getPhotoViewsCount(photo.id);
-          
-          const hasLiked = userLikesMap[photo.id] || false;
-          
-          photosWithUsers.push({
-            photo,
-            user,
-            hasLiked,
-          });
-        }
-      }
-
-      return photosWithUsers;
+      return this.enrichPhotos(db, paginatedPhotos, uid, likesMap, userLikesMap);
     } catch (error) {
       console.error('Error fetching public photos:', error);
       throw error;

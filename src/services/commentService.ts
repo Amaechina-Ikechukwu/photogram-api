@@ -1,10 +1,35 @@
 import { getDatabase } from '../config/firebase.ts';
 import type { Comment, CommentWithUser, User } from '../types/index.ts';
-import type { Database } from 'firebase-admin/database';
+import type { DataSnapshot, Database } from 'firebase-admin/database';
 
 export class CommentService {
   private async getDb(): Promise<Database> {
-    return await getDatabase();
+    return getDatabase();
+  }
+
+  private buildCommentLikesMaps(commentLikesSnapshot: DataSnapshot, userId: string | null): {
+    likesCountMap: Record<string, number>;
+    userLikesMap: Record<string, boolean>;
+  } {
+    const likesCountMap: Record<string, number> = {};
+    const userLikesMap: Record<string, boolean> = {};
+
+    if (!commentLikesSnapshot.exists()) {
+      return { likesCountMap, userLikesMap };
+    }
+
+    commentLikesSnapshot.forEach((child) => {
+      const like = child.val();
+      const commentId = like.commentId;
+
+      likesCountMap[commentId] = (likesCountMap[commentId] || 0) + 1;
+
+      if (userId && like.userId === userId) {
+        userLikesMap[commentId] = true;
+      }
+    });
+
+    return { likesCountMap, userLikesMap };
   }
 
   async createComment(userId: string, photoId: string, text: string): Promise<Comment> {
@@ -58,41 +83,53 @@ export class CommentService {
   async getPhotoComments(photoId: string, userId: string | null): Promise<CommentWithUser[]> {
     try {
       const db = await this.getDb();
-      const commentsSnapshot = await db.ref('comments').once('value');
+      const [commentsSnapshot, commentLikesSnapshot] = await Promise.all([
+        db.ref('comments').once('value'),
+        db.ref('commentLikes').once('value'),
+      ]);
       
       if (!commentsSnapshot.exists()) {
         return [];
       }
 
-      const comments: CommentWithUser[] = [];
+      const photoComments = Object.values(commentsSnapshot.val() as Record<string, Comment>)
+        .filter((comment) => comment.photoId === photoId)
+        .sort((a, b) => b.createdAt - a.createdAt);
 
-      for (const child of Object.values(commentsSnapshot.val())) {
-        const comment = child as Comment;
-        
-        if (comment.photoId === photoId) {
-          // Get user info
-          const userSnapshot = await db.ref(`users/${comment.userId}`).once('value');
-          const user = userSnapshot.exists() ? userSnapshot.val() as User : null;
-
-          if (user) {
-            // Get likes count for comment
-            const likesCount = await this.getCommentLikesCount(comment.id);
-            comment.likesCount = likesCount;
-
-            // Check if user has liked this comment
-            const hasLiked = userId ? await this.hasUserLikedComment(userId, comment.id) : false;
-
-            comments.push({
-              comment,
-              user,
-              hasLiked,
-            });
-          }
-        }
+      if (photoComments.length === 0) {
+        return [];
       }
 
-      // Sort by createdAt descending (newest first)
-      comments.sort((a, b) => b.comment.createdAt - a.comment.createdAt);
+      const { likesCountMap, userLikesMap } = this.buildCommentLikesMaps(commentLikesSnapshot, userId);
+
+      const uniqueUserIds = [...new Set(photoComments.map((comment) => comment.userId))];
+      const users = new Map<string, User>();
+
+      await Promise.all(uniqueUserIds.map(async (uid) => {
+        const userSnapshot = await db.ref(`users/${uid}`).once('value');
+        if (!userSnapshot.exists()) {
+          return;
+        }
+
+        users.set(uid, userSnapshot.val() as User);
+      }));
+
+      const comments: CommentWithUser[] = photoComments.flatMap((comment) => {
+        const user = users.get(comment.userId);
+
+        if (!user) {
+          return [];
+        }
+
+        return [{
+          comment: {
+            ...comment,
+            likesCount: likesCountMap[comment.id] || 0,
+          },
+          user,
+          hasLiked: userId ? Boolean(userLikesMap[comment.id]) : false,
+        }];
+      });
 
       return comments;
     } catch (error) {
