@@ -32,31 +32,21 @@ export const getUserPhotos = async (
       return;
     }
 
-    // Collect all photo IDs
     const photoIds: string[] = [];
     snapshot.forEach((childSnapshot) => {
       photoIds.push(childSnapshot.key as string);
     });
 
-    // Fetch photo details from images/public
-    const photos: any[] = [];
-    for (const photoId of photoIds) {
-      const photoRef = db.ref(`images/public/${photoId}`);
-      const photoSnapshot = await photoRef.once('value');
-      
-      if (photoSnapshot.exists()) {
-        const photoData = photoSnapshot.val();
-        photos.push({
-          id: photoId,
-          ...photoData,
-        });
-      }
-    }
+    const photoResults = await Promise.all(photoIds.map(async (photoId) => {
+      const photoSnapshot = await db.ref(`images/public/${photoId}`).once('value');
+      if (!photoSnapshot.exists()) return null;
+      return { id: photoId, ...photoSnapshot.val() };
+    }));
 
-    // Sort by createdAt descending
-    photos.sort((a, b) => b.createdAt - a.createdAt);
+    const photos = photoResults
+      .filter((p): p is NonNullable<typeof p> => p !== null)
+      .sort((a, b) => b.createdAt - a.createdAt);
 
-    // Apply pagination
     const startIndex = (page - 1) * pageSize;
     const endIndex = startIndex + pageSize;
     const paginatedPhotos = photos.slice(startIndex, endIndex);
@@ -100,51 +90,18 @@ export const getCurrentUser = async (
 
     const userData = snapshot.val();
 
-    // Calculate numberOfUploads
-    const userImagesRef = db.ref(`users/${uid}/images`);
-    const imagesSnapshot = await userImagesRef.once('value');
+    const imagesSnapshot = await db.ref(`users/${uid}/images`).once('value');
     const numberOfUploads = imagesSnapshot.exists() ? imagesSnapshot.numChildren() : 0;
-
-    // Get photo IDs to calculate total views and likes
-    const photoIds: string[] = [];
-    if (imagesSnapshot.exists()) {
-      imagesSnapshot.forEach((childSnapshot) => {
-        photoIds.push(childSnapshot.key as string);
-      });
-    }
-
-    // Calculate total views and likes
-    let totalViews = 0;
-    let totalLikes = 0;
-
-    for (const photoId of photoIds) {
-      // Get views for this photo
-      const viewsSnapshot = await db.ref(`views/${photoId}`).once('value');
-      if (viewsSnapshot.exists()) {
-        totalViews += viewsSnapshot.numChildren();
-      }
-    }
-
-    // Get all likes and count those for user's photos
-    const likesSnapshot = await db.ref('likes').once('value');
-    if (likesSnapshot.exists()) {
-      likesSnapshot.forEach((childSnapshot) => {
-        const like = childSnapshot.val();
-        if (photoIds.includes(like.postId)) {
-          totalLikes++;
-        }
-      });
-    }
 
     res.status(200).json({
       success: true,
       data: {
         name: userData.name || null,
-        uid: uid,
+        uid,
         email: userData.email,
         numberOfUploads,
-        totalViews,
-        totalLikes,
+        totalViews: userData.totalViews || 0,
+        totalLikes: userData.totalLikes || 0,
       },
     });
   } catch (error) {

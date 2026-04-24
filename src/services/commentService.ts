@@ -1,35 +1,17 @@
 import { getDatabase } from '../config/firebase.ts';
 import type { Comment, CommentWithUser, User } from '../types/index.ts';
-import type { DataSnapshot, Database } from 'firebase-admin/database';
+import type { Database } from 'firebase-admin/database';
 
 export class CommentService {
   private async getDb(): Promise<Database> {
     return getDatabase();
   }
 
-  private buildCommentLikesMaps(commentLikesSnapshot: DataSnapshot, userId: string | null): {
-    likesCountMap: Record<string, number>;
-    userLikesMap: Record<string, boolean>;
-  } {
-    const likesCountMap: Record<string, number> = {};
-    const userLikesMap: Record<string, boolean> = {};
-
-    if (!commentLikesSnapshot.exists()) {
-      return { likesCountMap, userLikesMap };
-    }
-
-    commentLikesSnapshot.forEach((child) => {
-      const like = child.val();
-      const commentId = like.commentId;
-
-      likesCountMap[commentId] = (likesCountMap[commentId] || 0) + 1;
-
-      if (userId && like.userId === userId) {
-        userLikesMap[commentId] = true;
-      }
-    });
-
-    return { likesCountMap, userLikesMap };
+  private async getUserCommentLikedSet(db: Database, userId: string | null): Promise<Set<string>> {
+    if (!userId) return new Set();
+    const snap = await db.ref(`commentLikes/byUser/${userId}`).once('value');
+    if (!snap.exists()) return new Set();
+    return new Set(Object.keys(snap.val() as Record<string, unknown>));
   }
 
   async createComment(userId: string, photoId: string, text: string): Promise<Comment> {
@@ -83,55 +65,47 @@ export class CommentService {
   async getPhotoComments(photoId: string, userId: string | null): Promise<CommentWithUser[]> {
     try {
       const db = await this.getDb();
-      const [commentsSnapshot, commentLikesSnapshot] = await Promise.all([
-        db.ref('comments').once('value'),
-        db.ref('commentLikes').once('value'),
-      ]);
-      
+      const commentsSnapshot = await db.ref('comments')
+        .orderByChild('photoId')
+        .equalTo(photoId)
+        .once('value');
+
       if (!commentsSnapshot.exists()) {
         return [];
       }
 
       const photoComments = Object.values(commentsSnapshot.val() as Record<string, Comment>)
-        .filter((comment) => comment.photoId === photoId)
         .sort((a, b) => b.createdAt - a.createdAt);
 
       if (photoComments.length === 0) {
         return [];
       }
 
-      const { likesCountMap, userLikesMap } = this.buildCommentLikesMaps(commentLikesSnapshot, userId);
-
       const uniqueUserIds = [...new Set(photoComments.map((comment) => comment.userId))];
       const users = new Map<string, User>();
 
-      await Promise.all(uniqueUserIds.map(async (uid) => {
-        const userSnapshot = await db.ref(`users/${uid}`).once('value');
-        if (!userSnapshot.exists()) {
-          return;
-        }
+      const [_, userLikedSet] = await Promise.all([
+        Promise.all(uniqueUserIds.map(async (uid) => {
+          const userSnapshot = await db.ref(`users/${uid}`).once('value');
+          if (!userSnapshot.exists()) return;
+          users.set(uid, userSnapshot.val() as User);
+        })),
+        this.getUserCommentLikedSet(db, userId),
+      ]);
 
-        users.set(uid, userSnapshot.val() as User);
-      }));
-
-      const comments: CommentWithUser[] = photoComments.flatMap((comment) => {
+      return photoComments.flatMap((comment) => {
         const user = users.get(comment.userId);
-
-        if (!user) {
-          return [];
-        }
+        if (!user) return [];
 
         return [{
           comment: {
             ...comment,
-            likesCount: likesCountMap[comment.id] || 0,
+            likesCount: comment.likesCount || 0,
           },
           user,
-          hasLiked: userId ? Boolean(userLikesMap[comment.id]) : false,
+          hasLiked: userLikedSet.has(comment.id),
         }];
       });
-
-      return comments;
     } catch (error) {
       console.error('Error getting photo comments:', error);
       throw error;
@@ -186,17 +160,14 @@ export class CommentService {
         throw new Error('Unauthorized to delete this comment');
       }
 
-      // Delete all likes associated with this comment
-      const commentLikesSnapshot = await db.ref('commentLikes').once('value');
-      if (commentLikesSnapshot.exists()) {
-        const deletePromises: Promise<void>[] = [];
-        commentLikesSnapshot.forEach((child) => {
-          const like = child.val();
-          if (like.commentId === commentId) {
-            deletePromises.push(db.ref(`commentLikes/${child.key}`).remove());
-          }
-        });
-        await Promise.all(deletePromises);
+      // Delete all likes associated with this comment (denormalized index)
+      const byCommentSnap = await db.ref(`commentLikes/byComment/${commentId}`).once('value');
+      if (byCommentSnap.exists()) {
+        const userIds = Object.keys(byCommentSnap.val() as Record<string, unknown>);
+        await Promise.all(userIds.map((likerUid) =>
+          db.ref(`commentLikes/byUser/${likerUid}/${commentId}`).remove()
+        ));
+        await db.ref(`commentLikes/byComment/${commentId}`).remove();
       }
 
       // Delete the comment
@@ -210,21 +181,8 @@ export class CommentService {
   async getCommentLikesCount(commentId: string): Promise<number> {
     try {
       const db = await this.getDb();
-      const commentLikesSnapshot = await db.ref('commentLikes').once('value');
-      
-      if (!commentLikesSnapshot.exists()) {
-        return 0;
-      }
-
-      let count = 0;
-      commentLikesSnapshot.forEach((child) => {
-        const like = child.val();
-        if (like.commentId === commentId) {
-          count++;
-        }
-      });
-
-      return count;
+      const snap = await db.ref(`comments/${commentId}/likesCount`).once('value');
+      return snap.exists() ? (snap.val() as number) : 0;
     } catch (error) {
       console.error('Error getting comment likes count:', error);
       return 0;
@@ -234,22 +192,8 @@ export class CommentService {
   async hasUserLikedComment(userId: string, commentId: string): Promise<boolean> {
     try {
       const db = await this.getDb();
-      const commentLikesSnapshot = await db.ref('commentLikes').once('value');
-      
-      if (!commentLikesSnapshot.exists()) {
-        return false;
-      }
-
-      let hasLiked = false;
-      commentLikesSnapshot.forEach((child) => {
-        const like = child.val();
-        if (like.userId === userId && like.commentId === commentId) {
-          hasLiked = true;
-          return true; // Stop iteration
-        }
-      });
-
-      return hasLiked;
+      const snap = await db.ref(`commentLikes/byUser/${userId}/${commentId}`).once('value');
+      return snap.exists();
     } catch (error) {
       console.error('Error checking comment like status:', error);
       return false;
